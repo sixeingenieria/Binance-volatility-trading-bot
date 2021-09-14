@@ -1,6 +1,6 @@
 """
 Olorin Sledge Fork
-Version: 1.19
+Version: 1.18
 
 Disclaimer
 
@@ -25,7 +25,6 @@ Functionality:
 - Totally reworked external signals. NOTE: you CANNOT use the default signals anymore with my bot unless you modify them to work with it
 - Sell all coins on stopping bot functionality
 - Stop bot on session profit / session stop loss trigger
-- Only sell based on an external signal i.e. Stop Loss and Take Profit are ignored
 - Discord support
 - Better reporting in trades.txt
 - A history.txt that records state of bot every minute (useful for past analysis /charting)
@@ -191,7 +190,7 @@ def get_price(add_to_historical=True):
     for coin in prices:
 
         if CUSTOM_LIST:
-            if any(item.replace(PAIR_WITH, "") + PAIR_WITH == coin['symbol'] for item in tickers) and all(item not in coin['symbol'] for item in FIATS):
+            if any(item + PAIR_WITH == coin['symbol'] for item in tickers) and all(item not in coin['symbol'] for item in FIATS):
                 initial_price[coin['symbol']] = { 'price': coin['price'], 'time': datetime.now()}
         else:
             if PAIR_WITH in coin['symbol'] and all(item not in coin['symbol'] for item in FIATS):
@@ -222,73 +221,10 @@ def wait_for_price():
     coins_unchanged = 0
 
     pause_bot()
-    # get first element from the dictionary
-    firstcoin = next(iter(historical_prices[hsp_head]))  
-
-    #BBif historical_prices[hsp_head]['BNB' + PAIR_WITH]['time'] > datetime.now() - timedelta(minutes=float(TIME_DIFFERENCE / RECHECK_INTERVAL)):
-    if historical_prices[hsp_head][firstcoin]['time'] > datetime.now() - timedelta(minutes=float(TIME_DIFFERENCE / RECHECK_INTERVAL)):
-        # sleep for exactly the amount of time required
-        #BBtime.sleep((timedelta(minutes=float(TIME_DIFFERENCE / RECHECK_INTERVAL)) - (datetime.now() - historical_prices[hsp_head]['BNB' + PAIR_WITH]['time'])).total_seconds())    
-        time.sleep((timedelta(minutes=float(TIME_DIFFERENCE / RECHECK_INTERVAL)) - (datetime.now() - historical_prices[hsp_head][firstcoin]['time'])).total_seconds())    
-
+    
     # retrieve latest prices
     #last_price = get_price()
     last_price = wrap_get_price()
-
-    # calculate the difference in prices
-    for coin in historical_prices[hsp_head]:
-           
-        # minimum and maximum prices over time period
-        try:
-            min_price = min(historical_prices, key = lambda x: float("inf") if x is None else float(x[coin]['price']))
-            max_price = max(historical_prices, key = lambda x: -1 if x is None else float(x[coin]['price']))
-
-            threshold_check = (-1.0 if min_price[coin]['time'] > max_price[coin]['time'] else 1.0) * (float(max_price[coin]['price']) - float(min_price[coin]['price'])) / float(min_price[coin]['price']) * 100
-
-            #if coin == "BTCUSDT" or coin == "ETHUSDT":
-                #print(f"coin: {coin} min_price: {min_price[coin]['price']} max_price: {max_price[coin]['price']}")
-        except KeyError:
-            if DEBUG:
-                print(f"wait_for_price(): Got a KeyError for {coin}. If this coin was just added to your tickers file, no need to worry about this KeyError.")
-            pass
-
-        # FOR NEGATIVE PRICE CHECKING
-        if threshold_check>0 and CHANGE_IN_PRICE<0: threshold_check=0
-
-        # each coin with higher gains than our CHANGE_IN_PRICE is added to the volatile_coins dict if less than TRADE_SLOTS is not reached.
-        # FOR NEGATIVE PRICE CHECKING
-        #if abs(threshold_check) > abs(CHANGE_IN_PRICE):
-        if abs(CHANGE_IN_PRICE) <=abs(threshold_check) <= abs(CHANGE_IN_PRICE_LIMIT):
-            coins_up +=1
-
-            if coin not in volatility_cooloff:
-                volatility_cooloff[coin] = datetime.now() - timedelta(minutes=TIME_DIFFERENCE)
-                # volatility_cooloff[coin] = datetime.now() - timedelta(minutes=COOLOFF_PERIOD)
-            
-            # only include coin as volatile if it hasn't been picked up in the last TIME_DIFFERENCE minutes already
-            if datetime.now() >= volatility_cooloff[coin] + timedelta(minutes=TIME_DIFFERENCE):
-            #if datetime.now() >= volatility_cooloff[coin] + timedelta(minutes=COOLOFF_PERIOD):
-                volatility_cooloff[coin] = datetime.now()
-
-                if len(coins_bought) + len(volatile_coins) < TRADE_SLOTS or TRADE_SLOTS == 0:
-                    volatile_coins[coin] = round(threshold_check, 3)
-                    print(f'{coin} has gained {volatile_coins[coin]}% within the last {TIME_DIFFERENCE} minutes, purchasing ${TRADE_TOTAL} {PAIR_WITH} of {coin}!')
-
-                else:
-                    print(f'{txcolors.WARNING}{coin} has gained {round(threshold_check, 3)}% within the last {TIME_DIFFERENCE} minutes, but you are using all available trade slots!{txcolors.DEFAULT}')
-            #else:
-                #if len(coins_bought) == TRADE_SLOTS:
-                #    print(f'{txcolors.WARNING}{coin} has gained {round(threshold_check, 3)}% within the last {TIME_DIFFERENCE} minutes, but you are using all available trade slots!{txcolors.DEFAULT}')
-                #else:
-                #    print(f'{txcolors.WARNING}{coin} has gained {round(threshold_check, 3)}% within the last {TIME_DIFFERENCE} minutes, but failed cool off period of {COOLOFF_PERIOD} minutes! Curr COP is {volatility_cooloff[coin] + timedelta(minutes=COOLOFF_PERIOD)}{txcolors.DEFAULT}')
-        elif threshold_check < CHANGE_IN_PRICE:
-            coins_down +=1
-
-        else:
-            coins_unchanged +=1
-
-    # Disabled until fix
-    #print(f'Up: {coins_up} Down: {coins_down} Unchanged: {coins_unchanged}')
 
    
 
@@ -759,7 +695,7 @@ def sell_coins(tpsl_override = False):
             sell_reason = 'Sell All Coins'
         if tpsl_override:
             sellCoin = True
-            sell_reason = session_tpsl_override_msg
+            sell_reason = 'Session TPSL Override reached'
 
         if sellCoin:
             print(f"{txcolors.SELL_PROFIT if PriceChangeIncFees_Perc >= 0. else txcolors.SELL_LOSS}Sell: {coins_bought[coin]['volume']} of {coin} | {sell_reason} | ${float(LastPrice):g} - ${float(BuyPrice):g} | Profit: {PriceChangeIncFees_Perc:.2f}% Est: {((float(coins_bought[coin]['volume'])*float(coins_bought[coin]['bought_at']))*PriceChangeIncFees_Perc)/100:.{decimals()}f} {PAIR_WITH} (Inc Fees){txcolors.DEFAULT}")
@@ -948,10 +884,10 @@ def check_total_session_profit(coins_bought, last_price):
     if DEBUG: print(f'Session Override SL Feature: ASPP={allsession_profits_perc} STP {SESSION_TAKE_PROFIT} SSL {SESSION_STOP_LOSS}')
     
     if allsession_profits_perc >= float(SESSION_TAKE_PROFIT): 
-        session_tpsl_override_msg = "Session TP Override target of " + str(SESSION_TAKE_PROFIT) + f"% met. Sell all coins now! Session profit is {allsession_profits_perc}%"
+        session_tpsl_override_msg = "Session TP Override target of " + str(SESSION_TAKE_PROFIT) + "% met. Sell all coins now!"
         is_bot_running = False
     if allsession_profits_perc <= float(SESSION_STOP_LOSS):
-        session_tpsl_override_msg = "Session SL Override target of " + str(SESSION_STOP_LOSS) + f"% met. Sell all coins now! Session loss is {allsession_profits_perc}%"
+        session_tpsl_override_msg = "Session SL Override target of " + str(SESSION_STOP_LOSS) + "% met. Sell all coins now!"
         is_bot_running = False   
 
 def update_portfolio(orders, last_price, volume):
@@ -1114,11 +1050,7 @@ def wrap_get_price():
                 else:
                     break
             prevcoincount = len(tickers)
-            
-            # tickers=[line.strip() for line in open(TICKERS_LIST)]
-            # Reload coins, also adding those coins that we currently hold
-            tickers=list(set([line.strip() for line in open(TICKERS_LIST)] + [coin['symbol'].removesuffix(PAIR_WITH) for coin in coins_bought.values()]))
-
+            tickers=[line.strip() for line in open(TICKERS_LIST)]
             if DEBUG:
                 print(f"Reloaded tickers from {TICKERS_LIST} file. Prev coin count: {prevcoincount} | New coin count: {len(tickers)}")
 
@@ -1187,7 +1119,6 @@ if __name__ == '__main__':
     RECHECK_INTERVAL = parsed_config['trading_options']['RECHECK_INTERVAL']
     
     CHANGE_IN_PRICE = parsed_config['trading_options']['CHANGE_IN_PRICE']
-    CHANGE_IN_PRICE_LIMIT = parsed_config['trading_options']['CHANGE_IN_PRICE_LIMIT']
     STOP_LOSS = parsed_config['trading_options']['STOP_LOSS']
     TAKE_PROFIT = parsed_config['trading_options']['TAKE_PROFIT']
 
